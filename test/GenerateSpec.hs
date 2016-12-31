@@ -104,6 +104,25 @@ spec = do
                               "import Json.Decode exposing (..)\n\n\n")]
                   let generated = map (<> "\n") (generateElmForAPI testApi)
                   generated `itemsShouldBe` expected
+           it "with dynamic URLs" $
+               do expected <-
+                      mapM
+                          (\(fpath,header) -> do
+                               source <- T.readFile fpath
+                               return (fpath, header, source))
+                          [ ( "test/elm-sources/getOneWithDynamicUrlSource.elm"
+                            , "module GetOneWithDynamicUrlSource exposing (..)\n\n" <>
+                              "import Http\n" <>
+                              "import Json.Decode exposing (..)\n\n\n")]
+                  let generated =
+                          map
+                              (<> "\n")
+                              (generateElmForAPIWith
+                                   (defElmOptions
+                                    { urlPrefix = Dynamic
+                                    })
+                                   (Proxy :: Proxy ("one" :> Get '[JSON] Int)))
+                  generated `itemsShouldBe` expected
 
 itemsShouldBe :: [Text] -> [(String, Text, Text)] -> IO ()
 itemsShouldBe actual expected =
