@@ -80,6 +80,7 @@ The default required imports are:
 > import Json.Decode.Pipeline exposing (..)
 > import Json.Encode
 > import Http
+> import HttpBuilder
 > import String
 -}
 defElmImports :: Text
@@ -89,6 +90,7 @@ defElmImports =
     , "import Json.Decode.Pipeline exposing (..)"
     , "import Json.Encode"
     , "import Http"
+    , "import HttpBuilder"
     , "import String"
     ]
 
@@ -211,7 +213,7 @@ mkTypeSignature opts request =
     returnType :: Maybe Doc
     returnType = do
       result <- fmap elmTypeRef $ request ^. F.reqReturnType
-      pure ("Http.Request" <+> parens result)
+      pure ("HttpBuilder.RequestBuilder" <+> parens result)
 
 
 mkArgs
@@ -283,8 +285,6 @@ mkLetParams opts request =
 
 mkRequest :: ElmOptions -> F.Req ElmDatatype -> Doc
 mkRequest opts request =
-  "Http.request" <$>
-  indent i
     (elmRecord
        [ "method =" <$>
          indent i (dquotes method)
@@ -301,6 +301,10 @@ mkRequest opts request =
          indent i "Nothing"
        , "withCredentials =" <$>
          indent i "False"
+       , "queryParams =" <$>
+         indent i "[]"
+       , "cacheBuster =" <$>
+         indent i "Nothing"
        ])
   where
     method =
