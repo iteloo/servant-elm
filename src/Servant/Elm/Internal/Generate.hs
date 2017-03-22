@@ -28,9 +28,12 @@ data ElmOptions = ElmOptions
   { {- | The protocol, host and any path prefix to be used as the base for all
     requests.
 
-    Example: @"https://mydomain.com/api/v1"@
+    Example: @Static "https://mydomain.com/api/v1"@
+
+    When @Dynamic@, the generated Elm functions take the base URL as the first
+    argument.
     -}
-    urlPrefix             :: T.Text
+    urlPrefix             :: UrlPrefix
   , elmExportOptions      :: Elm.Options
     -- ^ Options to pass to elm-export
   , emptyResponseElmTypes :: [ElmDatatype]
@@ -40,13 +43,18 @@ data ElmOptions = ElmOptions
   }
 
 
+data UrlPrefix
+  = Static T.Text
+  | Dynamic
+
+
 {-|
 Default options for generating Elm code.
 
 The default options are:
 
 > { urlPrefix =
->     ""
+>     Static ""
 > , elmExportOptions =
 >     Elm.defaultOptions
 > , emptyResponseElmTypes =
@@ -57,7 +65,7 @@ The default options are:
 -}
 defElmOptions :: ElmOptions
 defElmOptions = ElmOptions
-  { urlPrefix = ""
+  { urlPrefix = Static ""
   , elmExportOptions = Elm.defaultOptions
   , emptyResponseElmTypes =
       [ Elm.toElmType NoContent
@@ -65,6 +73,7 @@ defElmOptions = ElmOptions
       ]
   , stringElmTypes =
       [ Elm.toElmType ("" :: String)
+      , Elm.toElmType ("" :: T.Text)
       ]
   }
 
@@ -152,13 +161,13 @@ generateElmForRequest opts request =
         ]
 
     fnName =
-      request ^. F.reqFuncName . to F.camelCase . to stext
+      request ^. F.reqFuncName . to (T.replace "-" "" . F.camelCase) . to stext
 
     typeSignature =
       mkTypeSignature opts request
 
     args =
-      mkArgs request
+      mkArgs opts request
 
     letParams =
       mkLetParams opts request
@@ -170,12 +179,19 @@ generateElmForRequest opts request =
 mkTypeSignature :: ElmOptions -> F.Req ElmDatatype -> Doc
 mkTypeSignature opts request =
   (hsep . punctuate " ->" . concat)
-    [ headerTypes
+    [ catMaybes [urlPrefixType]
+    , headerTypes
     , urlCaptureTypes
     , queryTypes
     , catMaybes [bodyType, returnType]
     ]
   where
+    urlPrefixType :: Maybe Doc
+    urlPrefixType =
+        case (urlPrefix opts) of
+          Dynamic -> Just "String"
+          Static _ -> Nothing
+
     elmTypeRef :: ElmDatatype -> Doc
     elmTypeRef eType =
       stext (Elm.toElmTypeRefWith (elmExportOptions opts) eType)
@@ -216,26 +232,54 @@ mkTypeSignature opts request =
       pure ("HttpBuilder.RequestBuilder" <+> parens result)
 
 
+elmHeaderArg :: F.HeaderArg ElmDatatype -> Doc
+elmHeaderArg header =
+  "header_" <>
+  header ^. F.headerArg . F.argName . to (stext . F.unPathSegment)
+
+
+elmCaptureArg :: F.Segment ElmDatatype -> Doc
+elmCaptureArg segment =
+  "capture_" <>
+  F.captureArg segment ^. F.argName . to (stext . F.unPathSegment)
+
+
+elmQueryArg :: F.QueryArg ElmDatatype -> Doc
+elmQueryArg arg =
+  "query_" <>
+  arg ^. F.queryArgName . F.argName . to (stext . F.unPathSegment)
+
+
+elmBodyArg :: Doc
+elmBodyArg =
+  "body"
+
+
 mkArgs
-  :: F.Req ElmDatatype
+  :: ElmOptions
+  -> F.Req ElmDatatype
   -> Doc
-mkArgs request =
+mkArgs opts request =
   (hsep . concat) $
-    [ -- Headers
-      [ header ^. F.headerArg . F.argName . to (stext . F.unPathSegment)
+    [ -- Dynamic url prefix
+      case urlPrefix opts of
+        Dynamic -> ["urlBase"]
+        Static _ -> []
+    , -- Headers
+      [ elmHeaderArg header
       | header <- request ^. F.reqHeaders
       ]
     , -- URL Captures
-      [ F.captureArg segment ^. F.argName . to (stext . F.unPathSegment)
+      [ elmCaptureArg segment
       | segment <- request ^. F.reqUrl . F.path
       , F.isCapture segment
       ]
     , -- Query params
-      [ arg ^. F.queryArgName . F.argName . to (stext . F.unPathSegment)
+      [ elmQueryArg arg
       | arg <- request ^. F.reqUrl . F.queryStr
       ]
     , -- Request body
-      maybe [] (const ["body"]) (request ^. F.reqBody)
+      maybe [] (const [elmBodyArg]) (request ^. F.reqBody)
     ]
 
 
@@ -265,7 +309,7 @@ mkLetParams opts request =
                 "toString >> "
           in
               name <$>
-              indent 4 ("|> Maybe.map" <+> parens (toStringSrc <> "Http.encodeUri >> (++)" <+> dquotes (name <> equals)) <$>
+              indent 4 ("|> Maybe.map" <+> parens (toStringSrc <> "Http.encodeUri >> (++)" <+> dquotes (elmName <> equals)) <$>
                         "|> Maybe.withDefault" <+> dquotes empty)
 
         F.Flag ->
@@ -279,8 +323,8 @@ mkLetParams opts request =
             indent 4 ("|> List.map" <+> parens (backslash <> "val ->" <+> dquotes (name <> "[]=") <+> "++ (val |> toString |> Http.encodeUri)") <$>
                       "|> String.join" <+> dquotes "&")
       where
-        name =
-          qarg ^. F.queryArgName . F.argName . to (stext . F.unPathSegment)
+        name = elmQueryArg qarg
+        elmName= qarg ^. F.queryArgName . F.argName . to (stext . F.unPathSegment)
 
 
 mkRequest :: ElmOptions -> F.Req ElmDatatype -> Doc
@@ -313,12 +357,13 @@ mkRequest opts request =
     headers =
         [("Http.header" <+> dquotes headerName <+>
                  (if isElmStringType opts (header ^. F.headerArg . F.argType) then
-                     headerName
+                     headerArgName
                    else
-                     parens ("toString " <> headerName)
+                     parens ("toString " <> headerArgName)
                   ))
         | header <- request ^. F.reqHeaders
         , headerName <- [header ^. F.headerArg . F.argName . to (stext . F.unPathSegment)]
+        , headerArgName <- [elmHeaderArg header]
         ]
 
     url =
@@ -335,7 +380,7 @@ mkRequest opts request =
             encoderName =
               Elm.toElmEncoderRefWith (elmExportOptions opts) elmTypeExpr
           in
-            "Http.jsonBody" <+> parens (stext encoderName <+> "body")
+            "Http.jsonBody" <+> parens (stext encoderName <+> elmBodyArg)
 
     expect =
       case request ^. F.reqReturnType of
@@ -362,8 +407,10 @@ mkUrl :: ElmOptions -> [F.Segment ElmDatatype] -> Doc
 mkUrl opts segments =
   "String.join" <+> dquotes "/" <$>
   (indent i . elmList)
-    ( dquotes (stext (urlPrefix opts))
-    : map segmentToDoc segments)
+    ( case urlPrefix opts of
+        Dynamic -> "urlBase"
+        Static url -> dquotes (stext url)
+      : map segmentToDoc segments)
   where
 
     segmentToDoc :: F.Segment ElmDatatype -> Doc
@@ -380,7 +427,7 @@ mkUrl opts segments =
               else
                 " |> toString"
           in
-            (arg ^. F.argName . to (stext . F.unPathSegment )) <> toStringSrc <> " |> Http.encodeUri"
+            (elmCaptureArg s) <> toStringSrc <> " |> Http.encodeUri"
 
 
 mkQueryParams

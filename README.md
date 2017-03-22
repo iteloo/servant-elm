@@ -84,18 +84,17 @@ decodeBook =
         |> required "name" string
 
 getBooksByBookId : Int -> Http.Request (Book)
-getBooksByBookId bookId =
+getBooksByBookId capture_bookId =
     Http.request
         { method =
             "GET"
         , headers =
-            [ Http.header "Content-Type" "application/json"
-            ]
+            []
         , url =
             String.join "/"
                 [ ""
                 , "books"
-                , bookId |> toString |> Http.encodeUri
+                , capture_bookId |> toString |> Http.encodeUri
                 ]
         , body =
             Http.emptyBody
@@ -118,6 +117,7 @@ for an example project using this library.
 $ git clone https://github.com/mattjbray/servant-elm.git
 $ cd servant-elm
 $ stack test
+$ stack test --flag servant-elm:integration
 ```
 
 To build all examples:

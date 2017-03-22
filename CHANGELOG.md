@@ -1,3 +1,19 @@
+0.4.0.1
+-------
+* Remove hyphens from generated function names. (servant-foreign-0.10 no longer
+  does this for us.)
+
+0.4.0.0
+-------
+* Allow passing the base URL dynamically in Elm. (#20)
+* Don't use `toString` on `Text` parameters. (domenkozar) (#23, #24)
+* Fix query parameter generation. (domenkozar) (#25)
+
+0.3.0.1
+-------
+* Prefix generated function arguments to ensure valid Elm identifiers (#21)
+* Put integration tests behind a Cabal flag. (#22)
+
 0.3.0.0
 -------
 * Update for Elm 0.18 and the new elm-lang/http library.

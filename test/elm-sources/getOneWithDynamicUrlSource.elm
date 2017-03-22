@@ -1,10 +1,11 @@
-module GetBooksByIdSource exposing (..)
+module GetOneWithDynamicUrlSource exposing (..)
 
 import Http
+import Json.Decode exposing (..)
 
 
-getBooksById : Int -> Http.Request (Book)
-getBooksById capture_id =
+getOne : String -> Http.Request (Int)
+getOne urlBase =
     Http.request
         { method =
             "GET"
@@ -12,14 +13,13 @@ getBooksById capture_id =
             []
         , url =
             String.join "/"
-                [ ""
-                , "books"
-                , capture_id |> toString |> Http.encodeUri
+                [ urlBase
+                , "one"
                 ]
         , body =
             Http.emptyBody
         , expect =
-            Http.expectJson decodeBook
+            Http.expectJson int
         , timeout =
             Nothing
         , withCredentials =
